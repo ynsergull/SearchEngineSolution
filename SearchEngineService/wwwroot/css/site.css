@@ -1,0 +1,141 @@
+﻿:root {
+    --bg: #0b1220;
+    --panel: #121a2b;
+    --muted: #94a3b8;
+    --text: #e2e8f0;
+    --accent: #38bdf8;
+    --badge: #22c55e
+}
+
+html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.45 system-ui,Segoe UI,Roboto,Arial
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px
+}
+
+.card {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #1f2937
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill,minmax(300px,1fr));
+    gap: 16px
+}
+
+.row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap
+}
+
+.space-between {
+    justify-content: space-between
+}
+
+.mb16 {
+    margin-bottom: 16px
+}
+
+.mb8 {
+    margin-bottom: 8px
+}
+
+.mt22 {
+    margin-top: 22px
+}
+
+.mt8 {
+    margin-top: 8px
+}
+
+label {
+    font-size: 13px;
+    color: var(--muted)
+}
+
+input, select, button {
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: var(--text);
+    padding: 10px 12px
+}
+
+input, select {
+    min-width: 180px
+}
+
+button {
+    cursor: pointer
+}
+
+.btn {
+    background: #0ea5e9;
+    border: 0
+}
+
+    .btn.secondary {
+        background: #334155
+    }
+
+.muted {
+    color: var(--muted);
+    font-size: 13px
+}
+
+.badge {
+    display: inline-block;
+    background: var(--badge);
+    color: #052e16;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600
+}
+
+.score {
+    font-weight: 700;
+    color: var(--accent)
+}
+
+.divider {
+    height: 1px;
+    background: #1f2937;
+    margin: 12px 0
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none
+}
+
+    a:hover {
+        text-decoration: underline
+    }
+
+.header {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 8px
+}
+
+.alert {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #ef4444;
+    background: #1f2937;
+    color: #fecaca
+}
+

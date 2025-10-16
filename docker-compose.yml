@@ -1,0 +1,24 @@
+version: "3.8"
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: weg-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: casedb     
+      MYSQL_USER: case           
+      MYSQL_PASSWORD: casepass   
+    command: [
+      "--default-authentication-plugin=mysql_native_password",
+      "--character-set-server=utf8mb4",
+      "--collation-server=utf8mb4_general_ci",
+      "--innodb_ft_min_token_size=2"
+    ]
+    ports: ["3306:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+  redis:
+    image: redis:7
+    container_name: weg-redis
+    ports: ["6379:6379"]
+volumes:
+  mysql-data:

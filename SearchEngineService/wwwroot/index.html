@@ -1,0 +1,62 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SearchEngineService — Demo</title>
+    <link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+    <div class="container">
+        <h1>🔎 SearchEngineService</h1>
+
+        <div class="card mb16">
+            <div class="row">
+                <div>
+                    <label>Sorgu</label><br />
+                    <input id="q" placeholder="örn. go, docker, architecture" />
+                </div>
+                <div>
+                    <label>Tür</label><br />
+                    <select id="type">
+                        <option value="all">all</option>
+                        <option value="video">video</option>
+                        <option value="text">text</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Sıralama</label><br />
+                    <select id="sort">
+                        <option value="popularity">popularity</option>
+                        <option value="relevance">relevance</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Sayfa başına</label><br />
+                    <select id="size">
+                        <option>10</option>
+                        <option selected>20</option>
+                        <option>30</option>
+                    </select>
+                </div>
+                <div class="mt22">
+                    <button id="searchBtn" class="btn">Ara</button>
+                </div>
+            </div>
+            <div id="status" class="muted mt8"></div>
+        </div>
+
+        <div class="row space-between mb8">
+            <div id="meta" class="muted">Sayfa 1 / ?</div>
+            <div class="row">
+                <button id="prev" class="btn secondary">« Önceki</button>
+                <button id="next" class="btn secondary">Sonraki »</button>
+            </div>
+        </div>
+
+        <div id="results" class="grid"></div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
