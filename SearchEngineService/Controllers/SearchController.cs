@@ -1,39 +1,32 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;                       // EF.Functions, LINQ to Entities
+using Microsoft.EntityFrameworkCore;                       // AsNoTracking, Include, CountAsync, ToListAsync
 using Microsoft.Extensions.Caching.Distributed;           // IDistributedCache
-using Pomelo.EntityFrameworkCore.MySql.Infrastructure;    // MySqlMatchSearchMode
 using SearchEngineService.Data;
 using SearchEngineService.Models;
 using SearchEngineService.Providers;
-using SearchEngineService.Services;
+using SearchEngineService.Services;                        // ⬅ IContentSearch burada
 using System.Text.Json;
 
 namespace SearchEngineService.Controllers
 {
-    [ApiController]                                        // Otomatik model doğrulama, 400 üretimi vs.
-    [Route("api/[controller]")]                            // /api/search
+    [ApiController]
+    [Route("api/[controller]")]
     public class SearchController : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> Get(
-
-
-            //buraya mı eklicez
-
-            [FromQuery] string query,                      // Aranan metin
-            [FromQuery] string? type = "all",              // video | text | all
-            [FromQuery] string sort = "popularity",        // popularity | relevance
+            [FromQuery] string query,
+            [FromQuery] string? type = "all",
+            [FromQuery] string sort = "popularity",
             [FromQuery] int page = 1,
             [FromQuery] int size = 20,
-            [FromServices] IEnumerable<IProviderClient> providers = default!, // Tüm provider adaptörleri
-            [FromServices] IIngestService ingest = default!,                  // Upsert + skor
-            [FromServices] AppDbContext db = default!,                        // EF Core DbContext
-            [FromServices] IDistributedCache cache = default!,                // << Redis cache
+            [FromServices] IEnumerable<IProviderClient> providers = default!,
+            [FromServices] IIngestService ingest = default!,
+            [FromServices] AppDbContext db = default!,
+            [FromServices] IDistributedCache cache = default!,
+            [FromServices] IContentSearch contentSearch = default!,          // ⬅️ YENİ: Arama stratejisi (MySql/Fallback)
             CancellationToken ct = default)
-
-
         {
-
             // ---- validation ----
             static IActionResult BadRequestValidation(string title, params (string key, string msg)[] errors)
             {
@@ -52,92 +45,55 @@ namespace SearchEngineService.Controllers
                 return BadRequestValidation("Invalid query", ("query", "Query boş olamaz."));
 
             var allowedTypes = new[] { "all", "video", "text" };
-            if (!allowedTypes.Contains((type ?? "all").Trim().ToLowerInvariant()))
+            var normTypeInput = (type ?? "all").Trim().ToLowerInvariant();
+            if (!allowedTypes.Contains(normTypeInput))
                 return BadRequestValidation("Invalid type", ("type", "Geçerli değerler: all, video, text."));
 
             var allowedSort = new[] { "popularity", "relevance" };
-            if (!allowedSort.Contains((sort ?? "popularity").Trim().ToLowerInvariant()))
+            var normSortInput = (sort ?? "popularity").Trim().ToLowerInvariant();
+            if (!allowedSort.Contains(normSortInput))
                 return BadRequestValidation("Invalid sort", ("sort", "Geçerli değerler: popularity, relevance."));
 
             if (size < 1 || size > 50)
                 return BadRequestValidation("Invalid size", ("size", "1 ile 50 arasında olmalı."));
 
-
-
-            // ---- Parametreleri normalize et (sınır koy) ----
+            // ---- normalize ----
             page = Math.Max(1, page);
             size = Math.Clamp(size, 1, 50);
 
-            // ---- 1) CACHE: Aynı kombinasyon için 60 sn sakla ----
-            // Anahtarı stabilleştirmek için küçük harfe ve trim'e çekelim:
             var normQuery = (query ?? "").Trim().ToLowerInvariant();
-            var normType = (type ?? "all").Trim().ToLowerInvariant();
-            var normSort = (sort ?? "popularity").Trim().ToLowerInvariant();
+            var normType = normTypeInput;      // "all" | "video" | "text"
+            var normSort = normSortInput;      // "popularity" | "relevance"
 
+            // ---- 1) CACHE ----
             var cacheKey = $"search:{normQuery}:{normType}:{normSort}:{page}:{size}";
             var cachedJson = await cache.GetStringAsync(cacheKey, ct);
             if (!string.IsNullOrWhiteSpace(cachedJson))
             {
-                // Log: Cache hit
                 Serilog.Log.Information("CACHE_HIT {Key}", cacheKey);
-
-                // JSON'u tekrar serialize/deserialize etmeyelim; direkt döndür.
                 return Content(cachedJson, "application/json");
             }
             Serilog.Log.Information("CACHE_MISS {Key}", cacheKey);
 
-            // ---- 2) Provider'lardan veri getir → normalize → ingest (upsert + skor) ----
-            // Not: Cache miss'te ağır işi bir kez yapıyoruz.
+            // ---- 2) Provider'lardan getir → ingest ----
             var tasks = providers.Select(p => p.SearchAsync(normQuery, page, size, ct));
             var batches = await Task.WhenAll(tasks);
             var flat = batches.SelectMany(x => x).ToList();
             if (flat.Count > 0)
-            {
-                await ingest.IngestAsync(flat, ct);        // DB'ye yaz ve skorla
-            }
+                await ingest.IngestAsync(flat, ct);
 
             // ---- 3) DB üzerinde filtre + sıralama + sayfalama ----
-            var q = db.Contents.AsNoTracking()
-                               .Include(c => c.Score)
-                               .AsQueryable();
+            //    ⬇️ Arama stratejisini TEK SATIRLA uygula
+            IQueryable<Content> q = db.Contents
+                                       .AsNoTracking()
+                                       .Include(c => c.Score);
 
-            // Tür filtresi (all değilse)
-            if (!string.Equals(normType, "all", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(normType))
-            {
-                var t = normType.Equals("video", StringComparison.OrdinalIgnoreCase)
-                        ? ContentType.Video
-                        : ContentType.Text;
-                q = q.Where(c => c.Type == t);
-            }
+            q = contentSearch.Apply(db, q, normQuery, normType, normSort);
 
-            // 1) Her iki modda da, query varsa FULLTEXT filtre uygula:
-            if (!string.IsNullOrWhiteSpace(normQuery))
-            {
-                q = q.Where(c => EF.Functions.Match(
-                                    new[] { c.Title!, c.Description! },
-                                    normQuery,
-                                    MySqlMatchSearchMode.NaturalLanguage) > 0);
-            }
-
-            // 2) Sadece SIRALAMA değişsin:
-            if (normSort.Equals("relevance", StringComparison.OrdinalIgnoreCase))
-            {
-                q = q.OrderByDescending(c => EF.Functions.Match(
-                                    new[] { c.Title!, c.Description! },
-                                    normQuery,
-                                    MySqlMatchSearchMode.NaturalLanguage));
-            }
-            else
-            {
-                q = q.OrderByDescending(c => c.Score.FinalPopularityScore);
-            }
-
-
-            var total = await q.CountAsync(ct);            // toplam kayıt (sayfalama için)
-            var items = await q.Skip((page - 1) * size)    // paginasyon
+            var total = await q.CountAsync(ct);
+            var items = await q.Skip((page - 1) * size)
                                .Take(size)
-                               .Select(c => new            // Projeksiyon: istemcinin görmek istediği alanlar
+                               .Select(c => new
                                {
                                    id = c.Id,
                                    title = c.Title,
@@ -158,15 +114,14 @@ namespace SearchEngineService.Controllers
 
             var responseObj = new { meta = new { page, size, total }, results = items };
 
-            // ---- 4) CACHE'e yaz: 60 saniye sakla ----
+            // ---- 4) CACHE set (60s) ----
             var cacheOptions = new DistributedCacheEntryOptions
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60) // TTL
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60)
             };
-            var json = JsonSerializer.Serialize(responseObj); // string olarak saklıyoruz
+            var json = JsonSerializer.Serialize(responseObj);
             await cache.SetStringAsync(cacheKey, json, cacheOptions, ct);
 
-            // Yanıtı döndür
             return Ok(responseObj);
         }
     }

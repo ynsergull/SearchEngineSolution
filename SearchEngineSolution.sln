@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36603.0 d17.14
+VisualStudioVersion = 17.14.36603.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SearchEngineService", "SearchEngineService\SearchEngineService.csproj", "{0452C90D-3456-4027-8D59-DA95C4319F86}"
 EndProject
@@ -10,16 +10,42 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Çözüm Öğeleri", "Çöz
 		docker-compose.yml = docker-compose.yml
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SearchEngineService.Tests", "SearchEngineService.Tests\SearchEngineService.Tests.csproj", "{65A02CE3-702D-4354-912A-3574B4B8CC3E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|x64.Build.0 = Debug|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Debug|x86.Build.0 = Debug|Any CPU
 		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|x64.ActiveCfg = Release|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|x64.Build.0 = Release|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|x86.ActiveCfg = Release|Any CPU
+		{0452C90D-3456-4027-8D59-DA95C4319F86}.Release|x86.Build.0 = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|x64.Build.0 = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Debug|x86.Build.0 = Debug|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|x64.ActiveCfg = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|x64.Build.0 = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|x86.ActiveCfg = Release|Any CPU
+		{65A02CE3-702D-4354-912A-3574B4B8CC3E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -17,10 +17,9 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // 429 dönerken Retry-After ekle + logla (ValueTask!)
     options.OnRejected = async (ctx, ct) =>
     {
-        var retry = "60"; // sabit yazıyoruz; istersen hesaplayabilirsin
+        var retry = "60";
         ctx.HttpContext.Response.Headers.RetryAfter = retry;
         ctx.HttpContext.Response.ContentType = "application/problem+json";
 
@@ -38,7 +37,6 @@ builder.Services.AddRateLimiter(options =>
 
         await ctx.HttpContext.Response.WriteAsJsonAsync(problem, ct);
     };
-
 
     // IP başına 60 istek / 1 dk
     options.AddPolicy("search", httpContext =>
@@ -71,13 +69,33 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<IScoringService, ScoringService>();
 builder.Services.AddScoped<IIngestService, IngestService>();
-builder.Services.AddSingleton<IProviderClient, JsonProviderClient>();
-builder.Services.AddSingleton<IProviderClient, XmlProviderClient>();
 
-// EF Core + MySQL
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddSingleton<IProviderClient, JsonProviderClient>();
+    builder.Services.AddSingleton<IProviderClient, XmlProviderClient>();
+}
+
+// IContentSearch ortam bazlı
 var cs = builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseMySql(cs, ServerVersion.AutoDetect(cs)));
+if (builder.Environment.IsEnvironment("Testing"))
+{
+    // InMemory EF + LINQ arama (EF.Functions.Match YOK)
+    builder.Services.AddScoped<IContentSearch, FallbackContentSearch>();
+}
+else
+{
+    // MySQL FULLTEXT arama
+    builder.Services.AddScoped<IContentSearch, MySqlContentSearch>();
+}
+// ⬆️ ⬆️ ⬆️
+
+// EF Core + MySQL (Testing’de CustomWebAppFactory zaten InMemory ile override ediyor)
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddDbContext<AppDbContext>(opt =>
+        opt.UseMySql(cs, ServerVersion.AutoDetect(cs)));
+}
 
 // Redis
 builder.Services.AddStackExchangeRedisCache(opt =>
@@ -99,10 +117,10 @@ builder.Services.AddHttpClient("provider").AddPolicyHandler(retry);
 
 var app = builder.Build();
 
-// 🔒 Rate limiter middleware
+// Rate limiter middleware
 app.UseRateLimiter();
 
-// 🟢 Health (DB + Redis) ve rate limit muaf
+// Health (DB + Redis) ve rate limit muaf
 app.MapGet("/health", async (AppDbContext db, IDistributedCache cache, CancellationToken ct) =>
 {
     await db.Database.ExecuteSqlRawAsync("SELECT 1", cancellationToken: ct);
@@ -121,7 +139,7 @@ app.MapGet("/health", async (AppDbContext db, IDistributedCache cache, Cancellat
     });
 }).DisableRateLimiting();
 
-// 🔴 Global exception handler (500 -> ProblemDetails)
+// Global exception handler (500 -> ProblemDetails)
 app.UseExceptionHandler(err =>
 {
     err.Run(async context =>
@@ -151,7 +169,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Testing’de HTTPS yönlendirmesini kapat (xUnit uyarısını susturur)
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseAuthorization();
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -160,3 +183,5 @@ app.UseStaticFiles();
 app.MapControllers().RequireRateLimiting("search");
 
 app.Run();
+
+public partial class Program { }

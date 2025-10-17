@@ -14,6 +14,13 @@ let page = 1;
 function fmtDate(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+function renderTypeBadge(type) {
+    const isVideo = (type || '').toLowerCase() === 'video';
+    const cls = isVideo ? 'badge badge--video' : 'badge badge--text';
+    const label = isVideo ? 'Video' : 'Metin';
+    return `<span class="${cls}">${label}</span>`;
+}
+
 function setLoading(on) {
     statusEl.textContent = on ? 'Yükleniyor…' : '';
     searchBtn.disabled = on; prevBtn && (prevBtn.disabled = on); nextBtn && (nextBtn.disabled = on);
@@ -35,17 +42,16 @@ async function runSearch() {
         if (res.status === 429) {
             const retry = res.headers.get('Retry-After') ?? '60';
             let extra = '';
-            // Sunucu ProblemDetails gönderdiyse detayını kullan
             try {
                 const pr = await res.json();
                 if (pr?.detail) extra = ` (${pr.detail})`;
-            } catch { /* gövde yoksa sorun değil */ }
-
+            } catch { }
             statusEl.textContent = '';
             resultsEl.innerHTML =
                 `<div class="card" style="border-color:#ef4444;background:#1f2937">
-           <strong>İstek limiti aşıldı.</strong> ${retry} saniye sonra tekrar deneyin.${extra}
-         </div>`;
+       <strong>İstek limiti aşıldı.</strong> ${retry} saniye sonra tekrar deneyin.${extra}
+     </div>`;
+            setLoading(false);
             return;
         }
 
@@ -56,14 +62,15 @@ async function runSearch() {
                 const p = await res.json();
                 if (p?.title || p?.detail) msg = `${p.title ?? ''} ${p.detail ?? ''}`.trim();
             } catch {
-                // text gövde varsa onu yaz
                 try { msg = await res.text(); } catch { }
             }
             statusEl.textContent = '';
             resultsEl.innerHTML =
                 `<div class="card" style="border-color:#ef4444;background:#1f2937">${escapeHtml(msg)}</div>`;
+            setLoading(false);
             return;
         }
+
 
         // --- Başarılı yanıt ---
         const data = await res.json();
@@ -79,28 +86,29 @@ async function runSearch() {
         for (const it of data.results) {
             const card = document.createElement('div'); card.className = 'card';
             card.innerHTML = `
-        <div class="header">${escapeHtml(it.title)}</div>
-        <div class="row" style="gap:8px;margin:6px 0 8px 0;">
-          <span class="badge">${it.type}</span>
-          <span class="muted">sağlayıcı:</span><span>${escapeHtml(it.provider)}</span>
-          <span class="muted">yayın:</span><span>${fmtDate(it.published_at)}</span>
-        </div>
-        <div class="row" style="justify-content:space-between;margin:6px 0;">
-          <div>puan: <span class="score">${it.score}</span></div>
-          <a href="${it.url}" target="_blank" rel="noopener">kaynağa git ↗</a>
-        </div>
-        <div class="divider"></div>
-        <details>
-          <summary>puan breakdown</summary>
-          <div class="muted">
-            base: ${it.score_breakdown.baseScore},
-            typeWeight: ${it.score_breakdown.typeWeight},
-            recency: ${it.score_breakdown.recency},
-            engagement: ${it.score_breakdown.engagement}
-          </div>
-        </details>`;
-            resultsEl.appendChild(card);
+            <div class="header">${escapeHtml(it.title)}</div>
+            <div class="row" style="gap:8px;margin:6px 0 8px 0;">
+              ${renderTypeBadge(it.type)}
+              <span class="muted">sağlayıcı:</span><span>${escapeHtml(it.provider)}</span>
+              <span class="muted">yayın:</span><span>${fmtDate(it.published_at)}</span>
+            </div>
+            <div class="row" style="justify-content:space-between;margin:6px 0;">
+              <div>puan: <span class="score">${it.score}</span></div>
+              <a href="${it.url}" target="_blank" rel="noopener">kaynağa git ↗</a>
+            </div>
+            <div class="divider"></div>
+            <details>
+              <summary>puan breakdown</summary>
+              <div class="muted">
+                base: ${it.score_breakdown.baseScore},
+                typeWeight: ${it.score_breakdown.typeWeight},
+                recency: ${it.score_breakdown.recency},
+                engagement: ${it.score_breakdown.engagement}
+              </div>
+            </details>`;
+                    resultsEl.appendChild(card);
         }
+
     } catch (e) {
         resultsEl.innerHTML =
             `<div class="card" style="border-color:#ef4444;background:#1f2937">

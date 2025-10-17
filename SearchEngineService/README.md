@@ -1,262 +1,308 @@
-﻿SearchEngineService
+﻿Aşağıdaki içeriği proje köküne README.md olarak koyabilirsin.
 
-Farklı sağlayıcılardan (JSON & XML) gelen içerikleri normalize eden, skorlayan ve arama yapan .NET 8 Web API.
-Üstüne tek dosyalık bir dashboard (wwwroot/index.html) ile sonuçları görsel listeleme.
+# SearchEngineService
 
-Case hedefi: “provider → normalize → score → search” zincirini kurmak; kalite için FULLTEXT relevance, performans için Redis cache eklemek.
+JSON ve XML formatlı iki farklı sağlayıcıdan (provider) veri toplayıp normalize eden, bu içerikleri skorlama formülüne göre puanlayan ve **popülerlik** veya **alakalılık (relevance)** skoruna göre sıralayıp sunan bir arama servisi.
 
-İçindekiler
+> **Bonus:** `wwwroot/index.html` altında tek sayfalık bir dashboard ile arama sonuçlarını görselleştirir.
 
-Özellikler
+---
 
-Hızlı Başlangıç
+## İçerik
 
-Mimari ve Akış
+- [Mimari ve Bileşenler](#mimari-ve-bileşenler)
+- [Skorlama Formülü](#skorlama-formülü)
+- [Kurulum ve Çalıştırma](#kurulum-ve-çalıştırma)
+- [Konfigürasyon](#konfigürasyon)
+- [API](#api)
+- [Dashboard](#dashboard)
+- [Test Stratejisi](#test-stratejisi)
+- [Teknoloji Tercihleri ve Gerekçeler](#teknoloji-tercihleri-ve-gerekçeler)
+- [İyileştirme Alanları](#iyileştirme-alanları)
 
-Veri Modeli
+---
 
-Skorlama Formülü
+## Mimari ve Bileşenler
 
-API
+**Katmanlar**
+- **Providers**: `JsonProviderClient` ve `XmlProviderClient` mock dosyalardan veri okur (`mocks/provider1.json`, `mocks/provider2.xml`).
+- **IngestService**: Sağlayıcılardan gelen ham verileri **normalize edip** DB’ye upsert eder ve **ScoringService** ile puanlar.
+- **ScoringService**: Formüle göre `Score` üretir (detay aşağıda).
+- **IContentSearch** (strateji):  
+  - `MySqlContentSearch`: MySQL’de `EF.Functions.Match` ile **FULLTEXT** arama ve relevance sıralaması.  
+  - `InMemoryContentSearch`: Test/in-memory ortamı için `Contains` tabanlı arama + tie‑break ile sıralama.  
+  - `FallbackContentSearch`: Koşula göre uygun stratejiyi seçer.
+- **API**: `SearchController` uç noktası. Rate limit, cache (Redis), global exception handling (ProblemDetails) ve Serilog logları içerir.
+- **Veri**: `AppDbContext` + MySQL (prod), EF Core **InMemory** (test). `Content` ve ilişik `Score` entity’leri.
 
-Dashboard
+**Akış**
+1. İstek geldiğinde cache anahtarına bakılır; varsa 60 sn TTL ile döner.
+2. Cache miss ise provider’lardan veri toplanır → normalize edilir → `IngestService` ile **upsert + score**.
+3. `IContentSearch` stratejisi ile DB üzerinde filtre/sıralama/paginasyon uygulanır.
+4. Sonuçlar hem response hem de cache’e yazılır.
 
-Loglama & Cache
+---
 
-Geliştirme tercihleri
+## Skorlama Formülü
 
-Ekran Görüntüleri
+> **FinalSkor = (TemelPuan * İçerikTürüKatsayısı) + GüncellikPuanı + EtkileşimPuanı**
 
-Troubleshooting
+**Temel Puan**  
+- Video: `views / 1000 + (likes / 100)`  
+- Metin: `reading_time + (reactions / 50)`
 
-Yol Haritası
+**İçerik Türü Katsayısı**  
+- Video: `1.5`  
+- Metin: `1.0`
 
-Özellikler
+**Güncellik Puanı**  
+- 1 hafta içinde: `+5`  
+- 1 ay içinde: `+3`  
+- 3 ay içinde: `+1`  
+- Daha eski: `+0`
 
-Providers: IProviderClient arayüzü + JsonProviderClient, XmlProviderClient (mock dosyalar).
+**Etkileşim Puanı**  
+- Video: `(likes / views) * 10`  
+- Metin: `(reactions / reading_time) * 5`
 
-Normalize → Ingest → Score: idempotent upsert + ScoringService ile final ve breakdown skorları.
+> Bu kurallar case dökümanındaki gereksinimlerin birebir karşılığıdır. (Bkz. “İçerik Puanlama Formülü”).  
 
-Arama:
+---
 
-query (opsiyonel) → varsa FULLTEXT WHERE
+## Kurulum ve Çalıştırma
 
-type: all|video|text
+### Gereksinimler
+- .NET 8 SDK
+- MySQL (prod) ve Redis (cache). Testler için gerekli değil.
+- `dotnet` CLI
 
-sort: popularity (final skor) veya relevance (FULLTEXT alaka)
+### Kurulum
+```bash
+# bağımlılıklar
+dotnet restore
 
-sayfalama: page, size
+# veritabanı (prod)
+# MySQL’de Title/Description için FULLTEXT indekslerini oluştur:
+# ALTER TABLE Contents ADD FULLTEXT INDEX ft_title_description (Title, Description);
 
-Relevance: MySQL FULLTEXT (MATCH(Title, Description) AGAINST(...)).
+# çalıştırma (Swagger açık)
+dotnet run --project SearchEngineService
 
-Popularity: case formülüne göre FinalPopularityScore.
+EF Sürüm Uyarısı (isteğe bağlı düzeltme)
 
-Cache: IDistributedCache ile 60 sn sorgu bazlı Redis cache.
+Projede EF Core paket sürümlerini eşitlemek için csproj’da aynı patch versiyonunu kullanın:
 
-Swagger: /swagger
+<ItemGroup>
+  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.10" />
+  <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.10" />
+  <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.10" />
+</ItemGroup>
 
-Dashboard: / (wwwroot/index.html)
+Konfigürasyon
 
-Serilog: console + request logging.
+appsettings.json
 
-Hızlı Başlangıç
+{
+  "ConnectionStrings": { "Default": "Server=...;Database=...;User=...;Password=...;SslMode=None" },
+  "Redis": { "Configuration": "localhost:6379" }
+}
 
-Gereksinimler: .NET 8 SDK, Docker Desktop.
 
-1) Konteynerlar
+Program.cs (özet)
 
-docker compose up -d
-# MySQL (weg-mysql), Redis (weg-redis) ayağa kalkar
+RateLimiter: IP başına 60 istek/dk
 
+Serilog: Console sink
 
-2) İlk kurulum
+HTTP Client + Polly: 429 ve geçici hatalara WaitAndRetry
 
-dotnet tool install --global dotnet-ef
-dotnet ef database update   # migration'lar uygulanır, indeksler oluşur (FULLTEXT dahil)
+/health: DB ve Redis ping
 
+Swagger (Development)
 
-3) Çalıştır
+Static files: / → wwwroot/index.html dashboard
 
-dotnet run
-# Swagger:   https://localhost:7220/swagger
-# Dashboard: https://localhost:7220/
+DI:
 
+IScoringService, IIngestService
 
-İlk aramada ingest + skor hesaplanır; aynı parametreyle ikinci arama cache’ten gelir (Serilog’da CACHE_HIT görürsün).
+IProviderClient (JSON/XML)
 
-Mimari ve Akış
-Controllers
-  └── SearchController      # GET /api/Search
-Providers
-  ├── IProviderClient       # arayüz
-  ├── JsonProviderClient    # provider1.json -> Normalize
-  └── XmlProviderClient     # provider2.xml -> Normalize
-Services
-  ├── IngestService         # Upsert (Contents + ContentScores) + score hesaplama
-  └── ScoringService        # Formüller
-Data
-  └── AppDbContext          # EF Core; FullText index migration
-Models
-  └── Content, ContentScore
-Transport
-  └── NormalizedContent     # provider -> ingest DTO
-wwwroot
-  └── index.html            # dashboard (tek dosya)
-
-
-Akış
-/api/Search:
-
-Cache Key üret (query/type/sort/page/size) → 60 sn kontrol.
-
-Cache miss → provider’lardan getir, normalize et → IngestService ile upsert + skorlama.
-
-DB’de query varsa FULLTEXT WHERE uygula.
-
-sort=relevance ise relevance skoru ile sırala; popularity ise FinalPopularityScore ile.
-
-page/size ile sayfalayıp döndür → cache’e yaz (60 sn).
-
-Veri Modeli
-
-Contents
-
-Id (Guid PK)
-
-Provider, ExternalId (UNIQUE çift)
-
-Type: video|text
-
-Title, Description, Url
-
-Views, Likes (video için)
-ReadingTime, Reactions (text için)
-
-PublishedAt, CreatedAt, UpdatedAt
-
-Index: Type
-
-FULLTEXT: Title, Description
-
-ContentScores (1–1)
-
-ContentId (FK & PK)
-
-BaseScore, TypeWeight, RecencyScore, EngagementScore
-
-FinalPopularityScore
-
-Skorlama Formülü
-
-Video
-
-base = views/1000 + likes/100
-
-typeWeight = 1.5
-
-engagement = (likes / max(views,1)) * 10
-
-Text
-
-base = readingTime + reactions/50
-
-typeWeight = 1.0
-
-engagement = (reactions / max(readingTime,1)) * 5
-
-Recency
-
-<7 gün: +5, <30 gün: +3, <90 gün: +1, aksi: 0
-
-Final
-
-FinalPopularityScore = (base * typeWeight) + recency + engagement
-
-
-Breakdown skorları ContentScores tablosunda saklanır ve API yanıtına dahil edilir.
+IContentSearch (Fallback → MySql/InMemory)
 
 API
 GET /api/Search
-  ?query=go
-  &type=all|video|text
-  &sort=popularity|relevance
-  &page=1
-  &size=20
+
+Query parametreleri
+
+query: arama metni (zorunlu)
+
+type: video | text | all (varsayılan: all)
+
+sort: popularity | relevance (varsayılan: popularity)
+
+page: 1..n (varsayılan: 1)
+
+size: 1..50 (varsayılan: 20)
+
+Örnek
+
+/api/Search?query=go&type=all&sort=relevance&page=1&size=20
 
 
-200
+Response
 
 {
-  "meta": { "page": 1, "size": 20, "total": 5 },
+  "meta": { "page": 1, "size": 20, "total": 42 },
   "results": [
     {
       "id": "GUID",
-      "title": "Advanced Go Concurrency Patterns",
-      "type": "video",
-      "score": 69.84,
-      "score_breakdown": { "baseScore": 46, "typeWeight": 1.5, "recency": 0, "engagement": 0.84 },
+      "title": "Clean Architecture in Go",
+      "type": "video|text",
+      "score": 298.25,
+      "score_breakdown": {
+        "baseScore": 123.45,
+        "typeWeight": 1.5,
+        "recency": 5,
+        "engagement": 2.34
+      },
       "provider": "ProviderJson",
       "published_at": "2024-03-14T00:00:00Z",
-      "url": "mock://provider1/v2"
+      "url": "https://..."
     }
   ]
 }
 
 
-Hata durumları
+Hata Kodları
 
-400 – boş query (istenirse) / geçersiz parametre
+400: validasyon (boş query, geçersiz type/sort/size)
 
-500 – beklenmeyen hata (global handler ile problem+json)
+429: rate limit aşıldı (Retry-After başlığı gelir)
+
+500: genel hata (ProblemDetails)
 
 Dashboard
 
-Adres: / (wwwroot/index.html)
+wwwroot/index.html tek sayfa.
 
-Ne yapar?: Formdan parametre alır, API’yi fetch ile çağırır, kart grid’inde sonuçları gösterir.
+Arama kutusu, tür ve sıralama seçimleri, sayfalama, kart listesi.
 
-Özellikler: pagination, score breakdown, provider ve yayın tarihi bilgisi, link.
+Kartta başlık, tür (Video/Metin), skor ve breakdown linki görüntülenir.
 
-Loglama & Cache
+Relevance vs popularity seçimi anlık değiştirilebilir.
 
-Serilog: Console’da request logları ve özel satırlar; örn. CACHE_HIT {Key} / CACHE_MISS {Key}.
+Bu kısım case dokümanındaki “Dashboard” beklentisini karşılar.
 
-Redis Cache: IDistributedCache ile 60 sn TTL. Key formatı:
+Test Stratejisi
 
-search:{query}:{type}:{sort}:{page}:{size}
+Neden böyle test ettik?
+
+Provider’lar gerçekte “mock” kaynaklardan okuyor (JSON/XML). Bu yüzden test ortamında gerçek I/O’ya bağlı olmadan uçtan uca akışı doğruladık.
+
+MySQL FULLTEXT ifadesi (EF.Functions.Match) InMemory provider’da desteklenmediği için, IContentSearch stratejisini soyutlayıp testte InMemoryContentSearch ile aynı akışı çalıştırdık. Bu sayede sorgu → ingest → DB → sıralama → cevap zincirini kırmadan test ettik.
+
+Testler
+
+IngestServiceTests.Ingest_Should_Upsert_And_Score
+
+Normalized içerikleri DB’ye upsert eder.
+
+ScoringService’in formüle göre Score ürettiğini doğrular.
+
+SearchControllerTests.Get_Should_Return_200_With_Results
+
+/api/Search?query=go&type=all&sort=popularity çağrısı 200 döner ve sonuç listesi gelir.
+
+Test DI:
+
+DB: EF InMemory
+
+Cache: InMemory IDistributedCache
+
+Providers: test projesindeki mocks dosyaları
+
+IContentSearch: InMemory strateji (relevance/contains + popularity tie‑break)
+
+SearchControllerTests.Get_Should_Return_400_When_Query_Empty
+
+Boş query ile 400 ve uygun ProblemDetails döner.
+
+Genişletebileceğin ek testler
+
+type=video/text filtreleri (yalnızca ilgili tiplerin gelmesi).
+
+sort=relevance için stabil sıralama (eşit match’lerde popularity/publishedAt tie‑break).
+
+size sınırları (0, 51 gibi değerler → 400).
+
+Cache hit testi: aynı parametrelerle iki çağrıda ikinci yanıtın cache’den gelmesi.
+
+Idempotent upsert (aynı içerik iki kez ingest edilince çoğalma olmaması).
+
+Teknoloji Tercihleri ve Gerekçeler
+
+.NET 8 + ASP.NET Core: Minimal API/Controller, güçlü DI, test/observability araçları.
+
+EF Core + MySQL (Pomelo): FULLTEXT desteği ile relevance sıralaması.
+
+Redis (IDistributedCache): Parametre kombinasyonuna göre 60 sn TTL ile cache.
+
+Polly: Sağlayıcı tarafı 429/geçici hatalarda bekle‑yeniden dene.
+
+Rate Limiting: IP başına 60/dk.
+
+Serilog: structured logging.
+
+Swagger: hızlı dokümantasyon ve deneme.
+
+İyileştirme Alanları
+
+Provider bazlı throttle/bulkhead: Her provider için ayrı concurrency limiti ve 429 üretme.
+
+FULLTEXT indeksleri: Title, Description için MySQL FULLTEXT (prod kurulumu).
+
+Circuit breaker: Provider sürekli hata verirse kısa süreli kesici.
+
+Dedupe: Aynı URL veya güçlü hash ile yinelenen içerikleri önlemek.
+
+Daha fazla test: Yukarıda önerilenler + rate limit entegrasyon testi.
 
 
-FULLTEXT: Migration ile Contents(Title,Description) üzerine FULLTEXT index. Relevance modunda EF.Functions.Match(...).
+---
 
-Geliştirme tercihleri
+## 4) PDF’e göre son kontrol (kısa rapor)
 
-GUID PK: dağınık sistemlerde çakışmasız anahtar. (Alternatif: UUIDv7/BINARY(16))
+- **Arama + filtre + sıralama + sayfalama** → Var. :contentReference[oaicite:4]{index=4}  
+- **Skorlama formülü** → Birebir uygulandı (Temel + Tür katsayısı + Güncellik + Etkileşim). :contentReference[oaicite:5]{index=5}  
+- **2 provider (JSON/XML) + normalize + DB’de saklama** → Var. :contentReference[oaicite:6]{index=6}  
+- **Cache** → `IDistributedCache` (Redis). :contentReference[oaicite:7]{index=7}  
+- **Yeni provider eklemeye uygun yapı** → `IProviderClient` ile adapter deseni, evet. :contentReference[oaicite:8]{index=8}  
+- **Dashboard (opsiyonel)** → Var (tek sayfa). :contentReference[oaicite:9]{index=9}  
+- **İstek limiti yönetimi** → API seviyesinde IP başına 60/dk var; provider bazlı throttle opsiyonel iyileştirme. :contentReference[oaicite:10]{index=10}  
+- **Dokümantasyon** → Swagger + README (bu çıktı). :contentReference[oaicite:11]{index=11}  
+- **Test** → Var; mantıklı bir strateji ile (InMemory + mock providers). :contentReference[oaicite:12]{index=12}
 
-Upsert: UNIQUE (Provider, ExternalId) ile idempotent ingest.
+Genel olarak gereksinimleri **karşılıyorsun**. Eksik sayılabilecek tek nokta “provider bazlı throttle/circuit‑breaker” gibi ileri seviye dayanıklılık paternleri; bunları README’de “iyileştirme” olarak belirttik.
 
-Sıralama tutarlılığı: query varsa her iki modda da FULLTEXT WHERE uygulanır; fark sadece ORDER BY.
+---
 
-Performans: AsNoTracking, projection, cache.
+## 5) EF sürüm hizalama (uyarıyı kaldırmak istersen)
 
-Genişleyebilirlik: Yeni provider → yeni sınıf + DI kaydı.
+Uyarı: *“EFCore.Relational 9.0.0 ile 9.0.10 arasında çakışma…”*  
+Çözüm: Tüm EF Core paketlerini **aynı patch** versiyonuna sabitle:
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.10" />
+  <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.10" />
+  <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.10" />
+</ItemGroup>
 
-Ekran Görüntüleri
 
-dosyaları docs/ klasörüne koyup README içinde referansla.
+Ardından:
 
-Önerilen kareler:
+dotnet restore
+dotnet build
 
-Swagger – arama endpoint’i (parametreler + response bölümü açık)
-docs/swagger-search.png
 
-Dashboard – sonuçlar (senin attığın kılavuz görsel çok iyi)
-docs/dashboard.png
-
-Docker – MySQL & Redis container’ları up (Docker Desktop ekranı)
-docs/docker.png (opsiyonel)
-
-DBeaver – Contents & ContentScores tabloları ve FULLTEXT index
-docs/schema.png (opsiyonel)
-
-Serilog – CACHE_HIT/CACHE_MISS log çıktısı
-docs/cache-log.png (opsiyonel)
+Bu adım zorunlu değil, sadece uyarıyı temizler.
