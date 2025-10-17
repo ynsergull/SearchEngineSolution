@@ -169,7 +169,7 @@ dotnet test SearchEngineSolution.sln
 ## Ekran Görüntüleri
 
 **Swagger**
-![Swagger](./docs/images/swagger-search.png)
+![Swagger](./docs/images/swagger.png)
 
 **Dashboard Örnek Arama 1**
 ![Dashboard arama sonucu 1](./docs/images/dashboard1.png)
