@@ -25,7 +25,7 @@ JSON ve XML formatlı iki farklı sağlayıcıdan (provider) veri toplayıp norm
 ## Mimari ve Bileşenler
 
 **Katmanlar**
-- **Providers**: `JsonProviderClient` ve `XmlProviderClient` mock dosyalardan veri okur (`mocks/provider1.json`, `mocks/provider2.xml`).
+- **Providers**: `JsonProviderClient` ve `XmlProviderClient` mock dosyalardan veri okur (`mocks/provider1.json`, `mocks/provider2.xml`). Bu provider'lar `ResilientProviderClient` dekoratörü sayesinde **sağlayıcı bazlı rate limit, retry ve circuit breaker** politikalarıyla korunur (ayarlanabilir konfigürasyon).
 - **IngestService**: Sağlayıcılardan gelen ham verileri **normalize edip** DB’ye upsert eder ve **ScoringService** ile puanlar.
 - **ScoringService**: Formüle göre `Score` üretir (detay aşağıda).
 - **IContentSearch** (strateji):  
@@ -104,7 +104,20 @@ appsettings.json
 
 {
   "ConnectionStrings": { "Default": "Server=...;Database=...;User=...;Password=...;SslMode=None" },
-  "Redis": { "Configuration": "localhost:6379" }
+  "Redis": { "Configuration": "localhost:6379" },
+  "ProviderResilience": {
+    "Default": {
+      "MaxConcurrentRequests": 2,
+      "RetryCount": 2,
+      "RetryBaseDelayMilliseconds": 200,
+      "CircuitBreakerFailures": 3,
+      "CircuitBreakerDurationSeconds": 30
+    },
+    "Providers": {
+      "ProviderJson": { "MaxConcurrentRequests": 3, "RetryCount": 3 },
+      "ProviderXml": { "MaxConcurrentRequests": 1 }
+    }
+  }
 }
 
 
@@ -116,6 +129,8 @@ Serilog: Console sink
 
 HTTP Client + Polly: 429 ve geçici hatalara WaitAndRetry
 
+Provider dayanıklılığı: `ProviderResilience` konfigürasyonuna göre provider başına eş zamanlı istek limiti, retry ve circuit breaker (`ResilientProviderClient`).
+
 /health: DB ve Redis ping
 
 Swagger (Development)
@@ -126,7 +141,7 @@ DI:
 
 IScoringService, IIngestService
 
-IProviderClient (JSON/XML)
+IProviderClient (JSON/XML + resiliency dekoratörü)
 
 IContentSearch (Fallback → MySql/InMemory)
 
@@ -200,6 +215,8 @@ Neden böyle test ettik?
 
 Provider’lar gerçekte “mock” kaynaklardan okuyor (JSON/XML). Bu yüzden test ortamında gerçek I/O’ya bağlı olmadan uçtan uca akışı doğruladık.
 
+Gerçek dünyada da dış servisler için doğrudan çağrı yapmak yerine **fake/double** provider kullanmak yaygın (rate limit/kota, deterministik sonuç ve hata senaryolarını tetikleme ihtiyaçları nedeniyle). Testlerde `FakeProviderClient` aynı sözleşmeyi kullanarak provider davranışını simüle eder; böylece iş kuralları gerçek sisteme dokunmadan doğrulanır.
+
 MySQL FULLTEXT ifadesi (EF.Functions.Match) InMemory provider’da desteklenmediği için, IContentSearch stratejisini soyutlayıp testte InMemoryContentSearch ile aynı akışı çalıştırdık. Bu sayede sorgu → ingest → DB → sıralama → cevap zincirini kırmadan test ettik.
 
 Testler
@@ -220,13 +237,21 @@ DB: EF InMemory
 
 Cache: InMemory IDistributedCache
 
-Providers: test projesindeki mocks dosyaları
+Providers: `FakeProviderClient` (deterministik fake provider)
 
 IContentSearch: InMemory strateji (relevance/contains + popularity tie‑break)
 
 SearchControllerTests.Get_Should_Return_400_When_Query_Empty
 
 Boş query ile 400 ve uygun ProblemDetails döner.
+
+ResilientProviderClientTests.SearchAsync_Retries_OnTransientFailure
+
+Sağlayıcı bir kez hata verdiğinde retry politikasının devreye girdiğini doğrular.
+
+ResilientProviderClientTests.SearchAsync_OpensCircuit_AfterConfiguredFailures
+
+Ardışık hatalar sonrasında circuit breaker'ın devreye girdiğini doğrular.
 
 Genişletebileceğin ek testler
 
@@ -248,7 +273,7 @@ EF Core + MySQL (Pomelo): FULLTEXT desteği ile relevance sıralaması.
 
 Redis (IDistributedCache): Parametre kombinasyonuna göre 60 sn TTL ile cache.
 
-Polly: Sağlayıcı tarafı 429/geçici hatalarda bekle‑yeniden dene.
+Polly: Sağlayıcı tarafında rate limit + retry + circuit breaker politikalarını uygulayan `ResilientProviderClient` dekoratörü.
 
 Rate Limiting: IP başına 60/dk.
 
@@ -258,15 +283,15 @@ Swagger: hızlı dokümantasyon ve deneme.
 
 İyileştirme Alanları
 
-Provider bazlı throttle/bulkhead: Her provider için ayrı concurrency limiti ve 429 üretme.
+Relevance geliştirmeleri: TF/IDF, alan ağırlıkları, stop-word çıkarımı.
 
-FULLTEXT indeksleri: Title, Description için MySQL FULLTEXT (prod kurulumu).
+Veri tazeliği: Provider ingest akışını zamanlayıp güncel içerik önceliği tanımlamak.
 
-Circuit breaker: Provider sürekli hata verirse kısa süreli kesici.
+Observability: Provider bazlı metrikler (istek sayısı, retry/circuit durumları) ve distributed tracing entegrasyonu.
 
 Dedupe: Aynı URL veya güçlü hash ile yinelenen içerikleri önlemek.
 
-Daha fazla test: Yukarıda önerilenler + rate limit entegrasyon testi.
+Daha fazla test: Cache hit senaryosu, rate limiter davranışı, relevance sıralama varyasyonları.
 
 
 ---
@@ -279,11 +304,11 @@ Daha fazla test: Yukarıda önerilenler + rate limit entegrasyon testi.
 - **Cache** → `IDistributedCache` (Redis). :contentReference[oaicite:7]{index=7}  
 - **Yeni provider eklemeye uygun yapı** → `IProviderClient` ile adapter deseni, evet. :contentReference[oaicite:8]{index=8}  
 - **Dashboard (opsiyonel)** → Var (tek sayfa). :contentReference[oaicite:9]{index=9}  
-- **İstek limiti yönetimi** → API seviyesinde IP başına 60/dk var; provider bazlı throttle opsiyonel iyileştirme. :contentReference[oaicite:10]{index=10}  
+- **İstek limiti yönetimi** → API seviyesinde IP başına 60/dk + provider bazlı rate limit / retry / circuit breaker. :contentReference[oaicite:10]{index=10}
 - **Dokümantasyon** → Swagger + README (bu çıktı). :contentReference[oaicite:11]{index=11}  
 - **Test** → Var; mantıklı bir strateji ile (InMemory + mock providers). :contentReference[oaicite:12]{index=12}
 
-Genel olarak gereksinimleri **karşılıyorsun**. Eksik sayılabilecek tek nokta “provider bazlı throttle/circuit‑breaker” gibi ileri seviye dayanıklılık paternleri; bunları README’de “iyileştirme” olarak belirttik.
+Genel olarak gereksinimleri **karşılıyorsun**. Relevance geliştirmeleri ve veri tazeliği stratejisi gibi ileri adımlar sonraki iterasyonlar için değerlendirilebilir.
 
 ---
 
