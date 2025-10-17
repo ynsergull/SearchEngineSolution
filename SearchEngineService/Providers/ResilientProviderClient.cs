@@ -71,27 +71,47 @@ public sealed class ResilientProviderClient : IProviderClient, IDisposable
         }
 
         return Policy<IReadOnlyList<NormalizedContent>>
-            .Handle(ExceptionFilter)
-            .WaitAndRetryAsync(options.RetryCount, attempt => options.GetRetryDelay(attempt),
-                (exception, _, attempt, _) =>
+            .Handle<Exception>(ExceptionFilter)
+            .WaitAndRetryAsync(
+                retryCount: options.RetryCount,
+                sleepDurationProvider: attempt => options.GetRetryDelay(attempt),
+                onRetry: (outcome, _, attempt, _) =>
                 {
-                    _logger.LogWarning(exception, "Provider {Provider} transient failure on attempt {Attempt}", Name, attempt);
+                    if (outcome.Exception is { } exception)
+                    {
+                        _logger.LogWarning(
+                            exception,
+                            "Provider {Provider} transient failure on attempt {Attempt}",
+                            Name,
+                            attempt);
+                    }
                 });
     }
 
     private AsyncCircuitBreakerPolicy<IReadOnlyList<NormalizedContent>> BuildCircuitBreakerPolicy(ProviderPolicyOptions options)
     {
         return Policy<IReadOnlyList<NormalizedContent>>
-            .Handle(ExceptionFilter)
+            .Handle<Exception>(ExceptionFilter)
             .CircuitBreakerAsync(
                 exceptionsAllowedBeforeBreaking: options.CircuitBreakerFailures,
                 durationOfBreak: options.CircuitBreakerDuration,
-                onBreak: (exception, breakDuration) =>
+                onBreak: (outcome, breakDuration) =>
                 {
-                    _logger.LogWarning(exception,
-                        "Provider {Provider} circuit opened for {Duration} after repeated failures",
-                        Name,
-                        breakDuration);
+                    if (outcome.Exception is { } exception)
+                    {
+                        _logger.LogWarning(
+                            exception,
+                            "Provider {Provider} circuit opened for {Duration} after repeated failures",
+                            Name,
+                            breakDuration);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "Provider {Provider} circuit opened for {Duration} after repeated failures",
+                            Name,
+                            breakDuration);
+                    }
                 },
                 onReset: () =>
                 {
