@@ -3,9 +3,6 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
 using SearchEngineService.Data;
@@ -73,30 +70,10 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IScoringService, ScoringService>();
 builder.Services.AddScoped<IIngestService, IngestService>();
 
-builder.Services.AddOptions<ProviderResilienceOptions>()
-    .Bind(builder.Configuration.GetSection("ProviderResilience"))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
-
 if (!builder.Environment.IsEnvironment("Testing"))
 {
-    builder.Services.AddSingleton<IProviderClient>(sp =>
-    {
-        var inner = ActivatorUtilities.CreateInstance<JsonProviderClient>(sp);
-        return new ResilientProviderClient(
-            inner,
-            sp.GetRequiredService<IOptions<ProviderResilienceOptions>>(),
-            sp.GetRequiredService<ILogger<ResilientProviderClient>>());
-    });
-
-    builder.Services.AddSingleton<IProviderClient>(sp =>
-    {
-        var inner = ActivatorUtilities.CreateInstance<XmlProviderClient>(sp);
-        return new ResilientProviderClient(
-            inner,
-            sp.GetRequiredService<IOptions<ProviderResilienceOptions>>(),
-            sp.GetRequiredService<ILogger<ResilientProviderClient>>());
-    });
+    builder.Services.AddSingleton<IProviderClient, JsonProviderClient>();
+    builder.Services.AddSingleton<IProviderClient, XmlProviderClient>();
 }
 
 // IContentSearch ortam bazlı
