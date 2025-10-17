@@ -165,3 +165,17 @@ dotnet test SearchEngineSolution.sln
 - StackExchange Redis cache & distributed cache API’si.  
 - Polly tabanlı HTTP retry politikaları.  
 - Swagger UI (Development) ve statik dosya pipeline’ı.
+
+## Ekran Görüntüleri
+
+**Swagger**
+![Swagger](./docs/images/swagger-search.png)
+
+**Dashboard Örnek Arama 1**
+![Dashboard arama sonucu 1](./docs/images/dashboard1.png)
+
+**Dashboard Örnek Arama 2**
+![Dashboard arama sonucu 2](./docs/images/dashboard2.png)
+
+
+
